@@ -26,7 +26,7 @@ int extract_baud_rate(char *string);
 void send_nmea(int testrun);
 void send_ubx(int testrun);
 void fire_message(char *msg, int testrun, int nmea_type);
-void fire_ubx_msg(char *msg, int testrun);
+void fire_ubx_msg(char *msg, size_t len, int testrun);
 
 /* ublox m8 datasheet: (I'm using a M8030 chip)
 https://content.u-blox.com/sites/default/files/products/documents/u-blox8-M8_ReceiverDescrProtSpec_UBX-13003221.pdf
@@ -127,12 +127,12 @@ int extract_baud_rate(char *string) {
     return atoi(token);
 }
 
-void fire_ubx_msg(char *msg, int testrun) {
+void fire_ubx_msg(char *msg, size_t len, int testrun) {
     printf("firing off UBX message...\n");
-    printf("msg bytes: %d\n", sizeof(msg));
+    printf("msg bytes: %d\n", len);
     if (testrun == 0) {
         for (int i=0; i<5; i++) {
-            uart_write_blocking(UART_ID, msg, 28);
+            uart_write_blocking(UART_ID, msg, len);
         }
     }
 }
@@ -220,7 +220,7 @@ void send_ubx(int testrun) {
         0xD0,0x08,0x00,0x00,0x00,0xC2,0x01,0x00,0x07,0x00,
         0x03,0x00,0x00,0x00,0x00,0x00,0xC0,0x7E
     };
-    fire_ubx_msg(change_baud_rate, testrun);
+    fire_ubx_msg(change_baud_rate, sizeof(change_baud_rate), testrun);
 }
 
 int main(void) {
