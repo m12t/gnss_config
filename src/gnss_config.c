@@ -23,6 +23,9 @@ void uart_rx_setup(void);
 void compile_message(char *nmea_msg, char *raw_msg, char *checksum,
                      char *terminator);
 int extract_baud_rate(char *string);
+void send_ubx();
+void send_nmea();
+void fire_message(char *msg);
 
 /* ublox m8 datasheet: (I'm using a M8030 chip)
 https://content.u-blox.com/sites/default/files/products/documents/u-blox8-M8_ReceiverDescrProtSpec_UBX-13003221.pdf
@@ -123,11 +126,17 @@ int extract_baud_rate(char *string) {
     return atoi(token);
 }
 
+void fire_message(char *msg) {
+    printf("firing off message...\n");
+    for (int k = 0; k < 5; k++) {
+        // send out the message
+        for (int i=0; i<strlen(msg); i++) {
+            uart_putc_raw(UART_ID, msg[i]);
+        }
+    }
+}
 
-int main(void) {
-    stdio_init_all();  // important so that printf() works
-    uart_init(UART_ID, BAUD_RATE);
-
+void send_nmea() {
     // below are some NMEA PUBX messages to be modified as needed.
     // checksum values (immediately following `*`) are generated automatically
     char update_baud_rate[] = "$PUBX,41,1,3,3,115200,0*";  // update baud rate
@@ -141,8 +150,7 @@ int main(void) {
 
     // --------------- modify these variables to control execution---------------:
 
-    char raw_msg[] = "$PUBX,40,GLL,0,0,0,0*";  // pick the desired message to write and just hardcode it here
-    int write_msg = 0;  // 1 will write the nmea_msg to UART, 0 will skip the write but execute everything else.
+    char raw_msg[] = "$PUBX,40,GSV,0,0,0,0*";  // pick the desired message to write and just hardcode it here
 
     // ------------------------ end modifyable parameters ------------------------
 
@@ -158,25 +166,36 @@ int main(void) {
     strcpy(nmea_msg, "");  // initialize to empty string to avoid junk values
     compile_message(nmea_msg, raw_msg, checksum, msg_terminator);  // assemble the components into the final msg
 
+    // fire off the message multiple times. changing BAUD_RATE in particular definitely needs this treatment.
+    printf("firing off message...\n");
+    fire_message(nmea_msg);
+
+    if (strncmp(nmea_msg, update_baud_rate, 23) == 0) {
+        int new_baud;
+        new_baud = extract_baud_rate(update_baud_rate);
+        // update the pico's UART baud rate to the newly set value.
+        printf("updating baud rate to %d", new_baud);
+        int __unused actual = uart_set_baudrate(UART_ID, new_baud);
+    }
+
+}
+
+void send_ubx() {
+    uint8_t cfg_cfg_save_all[] = {
+        0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,0xFF,
+        0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x03,0x1D,0xAB };
+
+}
+
+int main(void) {
+    stdio_init_all();  // important so that printf() works
+    uart_init(UART_ID, BAUD_RATE);
     uart_tx_setup();  // initialize UART Tx on the pico
 
-    if (write_msg) {
-        // fire off the message multiple times. changing BAUD_RATE in particular definitely needs this treatment.
-        printf("firing off message...\n");
-        for (int k = 0; k < 5; k++) {
-            // send out the message
-            for (int i=0; i<strlen(nmea_msg); i++) {
-                uart_putc_raw(UART_ID, nmea_msg[i]);
-            }
-        }
-        if (strncmp(raw_msg, update_baud_rate, 23) == 0) {
-            int new_baud;
-            new_baud = extract_baud_rate(update_baud_rate);
-            // update the pico's UART baud rate to the newly set value.
-            printf("updating baud rate to %d", new_baud);
-            int __unused actual = uart_set_baudrate(UART_ID, new_baud);
-        }
-    }
+    send_nmea();  // comment out to not send anything
+    // send_ubx();   // comment out to not send anything
+
+    
     uart_rx_setup();  // initialize UART Rx on the pico
     while (1)
         tight_loop_contents();
