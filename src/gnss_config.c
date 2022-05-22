@@ -37,6 +37,7 @@ void on_uart_rx() {
     printf("received:\n%s\n-------------\n", buffer);
 }
 
+
 int get_checksum(char *string) {
     // adapted from: https://github.com/craigpeacock/NMEA-GPS/blob/master/gps.c
     char *checksum_str;
@@ -64,6 +65,7 @@ int get_checksum(char *string) {
 	return 0;
 }
 
+
 void compile_message(char *nmea_msg, char *raw_msg, char *checksum,
                      char *terminator) {
     // add up the components piece by piece and write them to the `nmea_msg` array.
@@ -75,6 +77,7 @@ void compile_message(char *nmea_msg, char *raw_msg, char *checksum,
     strcat(nmea_msg, terminator);  // finally, add the termination sequence
     // printf("\ncatted: %s\n", nmea_msg);
 }
+
 
 void uart_tx_setup(void) {
     // initialize UART on the pico but only what's needed for transmission
@@ -88,6 +91,7 @@ void uart_tx_setup(void) {
     uart_set_format(UART_ID, DATA_BITS, STOP_BITS, PARITY);
     uart_set_fifo_enabled(UART_ID, true);
 }
+
 
 void uart_rx_setup(void) {
     // finish initializing the RX UART...
@@ -124,7 +128,7 @@ int main(void) {
     stdio_init_all();  // important so that printf() works
     uart_init(UART_ID, BAUD_RATE);
 
-    // here are some NMEA PUBX messages to be modified as needed.
+    // below are some NMEA PUBX messages to be modified as needed.
     // checksum values (immediately following `*`) are generated automatically
     char update_baud_rate[] = "$PUBX,41,1,3,3,115200,0*";  // update baud rate
     char enable_zda[] = "$PUBX,40,ZDA,1,1,1,0*";           // enable ZDA
@@ -133,6 +137,7 @@ int main(void) {
     char disable_rmc[] = "$PUBX,40,RMC,0,0,0,0*";          // disable RMC
     char disable_gsa[] = "$PUBX,40,GSA,0,0,0,0*";          // disable GSA
     char disable_gll[] = "$PUBX,40,GLL,0,0,0,0*";          // disable GLL messages
+    // todo: add message for freezing settings on the module instead of volatile mem as is the default.
 
     // --------------- modify these variables to control execution---------------:
 
@@ -141,25 +146,25 @@ int main(void) {
 
     // ------------------------ end modifyable parameters ------------------------
 
-    char checksum[2];  // placeholder for checksum
+    int decimal_checksum;  // placeholder for the integer value checksum checksum
+    decimal_checksum = get_checksum(raw_msg);  // calc the hex checksum and write it to the `checksum` array
+    char checksum[2];  // placeholder for hexadecimal checksum
     strcpy(checksum, "");  // initialize to empty string to avoid junk values
-    int cs;
-    cs = get_checksum(raw_msg);  // calc the hex checksum and write it to the `checksum` array
-    sprintf(checksum, "%x", cs);  // convert the decimal checksum to hexadecimal
+    sprintf(checksum, "%x", decimal_checksum);  // convert the decimal checksum to hexadecimal
     // itoa(cs, checksum, 16);  // alternative to sprintf()
     // printf("%s", checksum);  // for debugging
     char msg_terminator[] = "\r\n";  // NMEA sentence terminator <cr><lr> == "\r\n"
-    char nmea_msg[strlen(raw_msg) + strlen(msg_terminator) + strlen(checksum)];
+    char nmea_msg[strlen(raw_msg) + strlen(msg_terminator) + strlen(checksum)];  // placeholder for final message
     strcpy(nmea_msg, "");  // initialize to empty string to avoid junk values
     compile_message(nmea_msg, raw_msg, checksum, msg_terminator);  // assemble the components into the final msg
 
-    uart_tx_setup();  // initialize UART on the pico
+    uart_tx_setup();  // initialize UART Tx on the pico
 
     if (write_msg) {
         // fire off the message multiple times. changing BAUD_RATE in particular definitely needs this treatment.
         printf("firing off message...\n");
         for (int k = 0; k < 5; k++) {
-            // send these prior to interrupts
+            // send out the message
             for (int i=0; i<strlen(nmea_msg); i++) {
                 uart_putc_raw(UART_ID, nmea_msg[i]);
             }
@@ -172,8 +177,7 @@ int main(void) {
             int __unused actual = uart_set_baudrate(UART_ID, new_baud);
         }
     }
-    sleep_ms(500);
-    uart_rx_setup();
+    uart_rx_setup();  // initialize UART Rx on the pico
     while (1)
         tight_loop_contents();
 }
