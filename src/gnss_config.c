@@ -34,10 +34,10 @@ https://content.u-blox.com/sites/default/files/products/documents/u-blox8-M8_Rec
 
 void on_uart_rx() {
     // for reading the raw output to a buffer and printing it to the console
-    size_t len = 1024;  // size of the buffer in bytes
+    size_t len = 255;  // size of the buffer in bytes
     char buffer[len];  // make a buffer of size `len` for the raw message
     uart_read_blocking(UART_ID, buffer, len);
-    printf("received:\n%s\n-------------\n", buffer);
+    printf("\n%s\n-------------\n", buffer);
 }
 
 
@@ -184,7 +184,7 @@ void send_ubx() {
     uint8_t cfg_cfg_save_all[] = {
         0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,0xFF,
         0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x03,0x1D,0xAB };
-
+    fire_message(cfg_cfg_save_all);
 }
 
 int main(void) {
@@ -192,7 +192,7 @@ int main(void) {
     uart_init(UART_ID, BAUD_RATE);
     uart_tx_setup();  // initialize UART Tx on the pico
 
-    send_nmea();  // comment out to not send anything
+    // send_nmea();  // comment out to not send anything
     // send_ubx();   // comment out to not send anything
 
     
