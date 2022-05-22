@@ -141,7 +141,6 @@ int extract_baud_rate(char *string) {
 
 void fire_ubx_msg(char *msg, size_t len, int testrun) {
     printf("firing off UBX message...\n");
-    printf("msg bytes: %d\n", len);
     if (testrun == 0) {
         // send out the message multiple times. BAUD_RATE in particular needs this treatment.
         for (int i=0; i<5; i++) {
@@ -179,7 +178,6 @@ void send_nmea(int testrun) {
     char disable_rmc[] = "$PUBX,40,RMC,0,0,0,0*";          // disable RMC
     char disable_gsa[] = "$PUBX,40,GSA,0,0,0,0*";          // disable GSA
     char disable_gll[] = "$PUBX,40,GLL,0,0,0,0*";          // disable GLL messages
-    // todo: add message for freezing settings on the module instead of volatile mem as is the default.
 
     // --------------- modify below variables to control execution---------------
 
@@ -233,6 +231,8 @@ int main(void) {
     uart_tx_setup();  // initialize UART Tx on the pico
 
     int testrun = 0;  // 1 to print the simulated transmission only, 0 to transmit it.
+
+    // TODO: be able to power on/off the module
 
     // send_nmea(testrun);  // comment out to not send anything
     send_ubx(testrun);   // comment out to not send anything
