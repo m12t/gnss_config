@@ -9,7 +9,7 @@
 #include "hardware/irq.h"
 
 #define UART_ID uart1   // change as needed
-#define BAUD_RATE 115200  // default BAUD rate for the module, can be changed below with a PUBX msg.
+#define BAUD_RATE 9600  // default BAUD rate for the module, can be changed below with a PUBX msg.
 #define DATA_BITS 8
 #define STOP_BITS 1
 #define PARITY UART_PARITY_NONE
@@ -17,13 +17,11 @@
 #define UART_RX_PIN 5   // change as needed
 
 void on_uart_rx(void);
-char* char2hex(unsigned char calculated_checksum, char* hexadecimalnum);
 int get_checksum(char *string);
 void uart_tx_setup(void);
 void uart_rx_setup(void);
 void compile_message(char *nmea_msg, char *raw_msg, char *checksum,
-                     char *terminator, size_t msg_len, size_t cs_len,
-                     size_t term_len);
+                     char *terminator);
 
 /* ublox m8 datasheet: (I'm using a M8030 chip)
 https://content.u-blox.com/sites/default/files/products/documents/u-blox8-M8_ReceiverDescrProtSpec_UBX-13003221.pdf
@@ -54,7 +52,7 @@ int get_checksum(char *string) {
 		*checksum_str = '\0';
 		// Calculate checksum, starting after $ (i = 1)
 		for (int i = 1; i < strlen(duplicate); i++) {
-			calculated_checksum = calculated_checksum ^ duplicate[i];
+			calculated_checksum = calculated_checksum ^ duplicate[i];  // exclusive OR
 		}
         printf("Calculated checksum (int): %u\n", calculated_checksum);
         return calculated_checksum;
@@ -66,37 +64,15 @@ int get_checksum(char *string) {
 }
 
 void compile_message(char *nmea_msg, char *raw_msg, char *checksum,
-                     char *terminator, size_t msg_len, size_t cs_len,
-                     size_t term_len) {
+                     char *terminator) {
     // add up the components piece by piece and write them to the `nmea_msg` array.
     // strcat doesn't work since these aren't properly formatted strings.
     // there's definitely a cleaner way to write this...
     // that's true for this whole program, though
-    int i = 0;
-    int j = 0;
-    while (i < msg_len) {
-        nmea_msg[i] = raw_msg[i];
-        i++;
-        j++;
-    }
-    j = 0;
-    while (j < cs_len) {
-        nmea_msg[i] = checksum[j];
-        i++;
-        j++;
-    }
-    j = 0;
-    while (j < term_len) {
-        nmea_msg[i] = terminator[j];
-        i++;
-        j++;
-    }
-    for (i=0; i<strlen(nmea_msg)-4; i++) {  // for debugging the junk values at the end of the array.
-        // -4 to remove jumk values at the end of the array.
-        // not sure where they're coming from...
-        printf("%d|", nmea_msg[i]);  // get the 
-    }
-    printf("\n\n%s\n\n", nmea_msg);
+    strcat(nmea_msg, raw_msg);     // add the base message
+    strcat(nmea_msg, checksum);    // add the checksum
+    strcat(nmea_msg, terminator);  // finally, add the termination sequence
+    // printf("\ncatted: %s\n", nmea_msg);
 }
 
 void uart_tx_setup(void) {
@@ -131,7 +107,6 @@ void uart_rx_setup(void) {
 
 int main(void) {
     stdio_init_all();  // important so that printf() works
-    printf("testing...\n");
     uart_init(UART_ID, BAUD_RATE);
 
     // here are some NMEA PUBX messages to be modified as needed.
@@ -145,23 +120,28 @@ int main(void) {
     char disable_gll[] = "$PUBX,40,GLL,0,0,0,0*";          // cs=(5C) disable GLL messages
 
     // modify these variables to control execution:
-    char raw_msg[] = "$PUBX,41,1,3,3,115200,0*";  // pick the desired message to write and just hardcode it here
-    int write_msg = 0;  // 1 will write the nmea_msg to UART, 0 will skip the write but execute everything else.
+    char raw_msg[] = "$PUBX,40,ZDA,1,1,1,0*";  // pick the desired message to write and just hardcode it here
+    int write_msg = 1;  // 1 will write the nmea_msg to UART, 0 will skip the write but execute everything else.
     // --------------- end modifyable parameters ---------------
 
     char checksum[2];  // placeholder for checksum
+    strcpy(checksum, "");
     int cs;
     cs = get_checksum(raw_msg);  // calc the hex checksum and write it to the `checksum` array
-    // itoa(cs, checksum, 16);  // alternative to sprintf()
     sprintf(checksum, "%x", cs);  // convert the decimal checksum to hexadecimal
+    // itoa(cs, checksum, 16);  // alternative to sprintf()
     printf("%s", checksum);
     char msg_terminator[] = "\r\n";  // NMEA sentence terminator <cr><lr> == "\r\n"
     size_t msg_len = strlen(raw_msg);
     size_t term_len = strlen(msg_terminator);
     size_t cs_len = strlen(checksum);
+    printf("msg_len: %lu", msg_len);
+    printf("term_len: %lu", term_len);
+    printf("cs_len: %lu", cs_len);
     char nmea_msg[msg_len + term_len + cs_len];
+    strcpy(nmea_msg, "");  // initialize to empty string to avoid junk values
 
-    compile_message(nmea_msg, raw_msg, checksum, msg_terminator, msg_len, cs_len, term_len);
+    compile_message(nmea_msg, raw_msg, checksum, msg_terminator);
 
     uart_tx_setup();  // initialize UART on the pico
 
@@ -173,12 +153,12 @@ int main(void) {
             printf("\n<><><><><><><><><>\n");
             for (int i=0; i<strlen(nmea_msg); i++) {
                 uart_putc_raw(UART_ID, nmea_msg[i]);
-                printf("%c|", nmea_msg[i]);
             }
             printf("<><><><><><><><><>\n");
         }
         if (strncmp(raw_msg, update_baud_rate, 23) == 0) {
             // update the pico's UART baud rate to the newly set value.
+            printf("updating baud rate");
             int __unused actual = uart_set_baudrate(UART_ID, 115200);
         }
     }
