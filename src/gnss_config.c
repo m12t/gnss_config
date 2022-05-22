@@ -25,7 +25,7 @@
 #include "hardware/irq.h"
 
 #define UART_ID uart1   // change as needed
-#define BAUD_RATE 9600  // default BAUD rate for the module for initial connection. can be changed later.
+#define BAUD_RATE 115200  // default BAUD rate for the module for initial connection. can be changed later.
 #define DATA_BITS 8
 #define STOP_BITS 1
 #define PARITY UART_PARITY_NONE
@@ -171,7 +171,7 @@ void fire_nmea_msg(char *msg, int testrun) {
 void send_nmea(int testrun) {
     // below are some NMEA PUBX messages to be modified as needed.
     // checksum values (immediately following `*`) are generated automatically
-    char update_baud_rate[] = "$PUBX,41,1,3,3,57600,0*";  // update baud rate
+    char update_baud_rate[] = "$PUBX,41,1,3,3,115200,0*";  // update baud rate
     char enable_zda[] = "$PUBX,40,ZDA,1,1,1,0*";           // enable ZDA
     char disable_gsv[] = "$PUBX,40,GSV,0,0,0,0*";          // disable GSV
     char disable_vtg[] = "$PUBX,40,VTG,0,0,0,0*";          // disable VTG
@@ -181,7 +181,7 @@ void send_nmea(int testrun) {
 
     // --------------- modify below variables to control execution---------------
 
-    char raw_msg[] = "$PUBX,41,1,3,3,57600,0*";  // pick the desired message to write and just hardcode it here
+    char raw_msg[] = "$PUBX,40,GLL,0,0,0,0*";  // pick the desired message to write and just hardcode it here
 
     // ------------------------ end modifyable variables ------------------------
 
@@ -222,7 +222,7 @@ void send_ubx(int testrun) {
         0x03,0x00,0x00,0x00,0x00,0x00,0xC0,0x7E
     };
     // pick the desired message and send it.
-    fire_ubx_msg(change_baud_rate, sizeof(change_baud_rate), testrun);
+    fire_ubx_msg(cfg_cfg_save_all, sizeof(change_baud_rate), testrun);
 }
 
 int main(void) {
@@ -231,6 +231,7 @@ int main(void) {
     uart_tx_setup();  // initialize UART Tx on the pico
 
     int testrun = 0;  // 1 to print the simulated transmission only, 0 to transmit it.
+    printf("REMINDER: ENSURE `BAUD_RATE` IS CORRECT FOR INITIAL CONNECTION!\n\n");
 
     // TODO: be able to power on/off the module
 
