@@ -7,13 +7,13 @@
     https://content.u-blox.com/sites/default/files/products/documents/u-blox8-M8_ReceiverDescrProtSpec_UBX-13003221.pdf
 
     I'm using a M8030 chip on a quadcopter GPS module:
-        Team Blacksheep M8.2
-        BOM: ~$11
-    
-    NOTE: It's critical the chip is actual ublox and not a clone. To detect this, connect to the module via
-    UART and have a stream (I use minicom) to read the output in the terminal. Then disconnect power from
+        - Team Blacksheep M8.2
+        - BOM: ~$11
+
+    NOTE: It's critical the chip is genuine ublox and not a clone. To detect this, connect to the module via
+    UART and have a stream (eg. using minicom) to read the output in the terminal. Then disconnect power from
     only the module and reconnect it. A stream of `GPTXT` data will be emitted. You can look up what it should and
-    should NOT look like for a genuine chip. This program likely won't work on a clone chip.
+    shouldn't look like for a genuine chip. This program likely won't work on a clone chip.
 */
 
 #include <stdio.h>
@@ -25,7 +25,7 @@
 #include "hardware/irq.h"
 
 #define UART_ID uart1   // change as needed
-#define BAUD_RATE 115200  // default BAUD rate for the module for initial connection. can be changed later.
+#define BAUD_RATE 9600  // default BAUD rate for the module for initial connection. can be changed later.
 #define DATA_BITS 8
 #define STOP_BITS 1
 #define PARITY UART_PARITY_NONE
@@ -41,7 +41,7 @@ void compile_message(char *nmea_msg, char *raw_msg, char *checksum,
 int extract_baud_rate(char *string);
 void send_nmea(int testrun);
 void send_ubx(int testrun);
-void fire_message(char *msg, int testrun, int nmea_type);
+void fire_nmea_msg(char *msg, int testrun);
 void fire_ubx_msg(char *msg, size_t len, int testrun);
 
 
@@ -143,37 +143,26 @@ void fire_ubx_msg(char *msg, size_t len, int testrun) {
     printf("firing off UBX message...\n");
     printf("msg bytes: %d\n", len);
     if (testrun == 0) {
+        // send out the message multiple times. BAUD_RATE in particular needs this treatment.
         for (int i=0; i<5; i++) {
             uart_write_blocking(UART_ID, msg, len);
         }
     }
 }
 
-void fire_message(char *msg, int testrun, int nmea_type) {
-    printf("firing off message...\n");
-    char ch[4];
+void fire_nmea_msg(char *msg, int testrun) {
+    printf("firing off NMEA message...\n");
     for (int k = 0; k < 5; k++) {
         // send out the message multiple times. BAUD_RATE in particular needs this treatment.
-        for (int i=0; i<strlen(msg); i++) {
-            if (testrun == 0) {
-                if (nmea_type == 0) {
-                    sprintf(ch, "%x", msg[i]);
-                    printf("%x", ch);
-                    printf("(%c)", ch);
-                    printf("-%x-", msg[i]);  // < this produces the desired output
-                    printf("=%c=", msg[i]);
-                    // uart_putc_raw(UART_ID, ch);
-                } else {
-                    uart_putc_raw(UART_ID, msg[i]);
-                }
-            } else {
-                if (nmea_type) {
-                    // print the char values
-                    printf("%c|", msg[i]);
-                } else {
-                    // print the hex values
-                    printf("%x|", msg[i]);
-                }
+        if (testrun == 0) {
+            for (int i=0; i<strlen(msg); i++) {
+                // write the message char by char.
+                uart_putc_raw(UART_ID, msg[i]);
+            }
+        } else {
+            for (int i=0; i<strlen(msg); i++) {
+                // print the chars for debugging
+                printf("%c|", msg[i]);
             }
         }
         printf("\n");
@@ -192,11 +181,11 @@ void send_nmea(int testrun) {
     char disable_gll[] = "$PUBX,40,GLL,0,0,0,0*";          // disable GLL messages
     // todo: add message for freezing settings on the module instead of volatile mem as is the default.
 
-    // --------------- modify these variables to control execution---------------:
+    // --------------- modify below variables to control execution---------------
 
     char raw_msg[] = "$PUBX,41,1,3,3,57600,0*";  // pick the desired message to write and just hardcode it here
 
-    // ------------------------ end modifyable parameters ------------------------
+    // ------------------------ end modifyable variables ------------------------
 
     int decimal_checksum;  // placeholder for the integer value checksum checksum
     decimal_checksum = get_checksum(raw_msg);  // calc the hex checksum and write it to the `checksum` array
@@ -210,7 +199,7 @@ void send_nmea(int testrun) {
     strcpy(nmea_msg, "");  // initialize to empty string to avoid junk values
     compile_message(nmea_msg, raw_msg, checksum, msg_terminator);  // assemble the components into the final msg
 
-    fire_message(nmea_msg, testrun, 1);
+    fire_nmea_msg(nmea_msg, testrun);
 
     if (strncmp(nmea_msg, update_baud_rate, 23) == 0 && (testrun == 0)) {
         int new_baud;
@@ -223,16 +212,17 @@ void send_nmea(int testrun) {
 }
 
 void send_ubx(int testrun) {
+    // cfg_cfg_save_all will cause the changes to be permanent and persist through power cycles.
     uint8_t cfg_cfg_save_all[] = {
         0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,0xFF,
         0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x03,0x1D,0xAB
     };
+    // below changes baud rate to `115200`
     uint8_t change_baud_rate[] = {
         0xB5,0x62,0x06,0x00,0x14,0x00,0x01,0x00,0x00,0x00,
         0xD0,0x08,0x00,0x00,0x00,0xC2,0x01,0x00,0x07,0x00,
         0x03,0x00,0x00,0x00,0x00,0x00,0xC0,0x7E
     };
-
     // pick the desired message and send it.
     fire_ubx_msg(change_baud_rate, sizeof(change_baud_rate), testrun);
 }
@@ -242,12 +232,11 @@ int main(void) {
     uart_init(UART_ID, BAUD_RATE);
     uart_tx_setup();  // initialize UART Tx on the pico
 
-    int testrun = 1;  // 1 to print the simulated transmission only, 0 to transmit it.
+    int testrun = 0;  // 1 to print the simulated transmission only, 0 to transmit it.
 
     // send_nmea(testrun);  // comment out to not send anything
     send_ubx(testrun);   // comment out to not send anything
 
-    
     uart_rx_setup();  // initialize UART Rx on the pico
     while (1)
         tight_loop_contents();
