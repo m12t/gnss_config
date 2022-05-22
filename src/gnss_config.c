@@ -9,7 +9,7 @@
 #include "hardware/irq.h"
 
 #define UART_ID uart1   // change as needed
-#define BAUD_RATE 115200  // default BAUD rate for the module, can be changed below with a PUBX msg.
+#define BAUD_RATE 9600  // default BAUD rate for the module, can be changed below with a PUBX msg.
 #define DATA_BITS 8
 #define STOP_BITS 1
 #define PARITY UART_PARITY_NONE
