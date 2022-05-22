@@ -1,5 +1,21 @@
-/* a program for sending NMEA PUBX messages to the gnss module
-   to change things like baud rate and desired NMEA sentences */
+/*
+    a program for sending NMEA PUBX and UBX protocol messages
+    to a ublox gnss module to change things like baud rate,
+    message rate, and desired NMEA sentences, etc.
+
+    /* ublox m8 datasheet:
+    https://content.u-blox.com/sites/default/files/products/documents/u-blox8-M8_ReceiverDescrProtSpec_UBX-13003221.pdf
+
+    I'm using a M8030 chip on a quadcopter GPS module:
+        Team Blacksheep M8.2
+        BOM: ~$11
+    
+    NOTE: It's critical the chip is actual ublox and not a clone. To detect this, connect to the module via
+    UART and have a stream (I use minicom) to read the output in the terminal. Then disconnect power from
+    only the module and reconnect it. A stream of `GPTXT` data will be emitted. You can look up what it should and
+    should NOT look like for a genuine chip. This program likely won't work on a clone chip.
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -9,7 +25,7 @@
 #include "hardware/irq.h"
 
 #define UART_ID uart1   // change as needed
-#define BAUD_RATE 115200  // default BAUD rate for the module, can be changed below with a PUBX msg.
+#define BAUD_RATE 115200  // default BAUD rate for the module for initial connection. can be changed later.
 #define DATA_BITS 8
 #define STOP_BITS 1
 #define PARITY UART_PARITY_NONE
@@ -27,10 +43,6 @@ void send_nmea(int testrun);
 void send_ubx(int testrun);
 void fire_message(char *msg, int testrun, int nmea_type);
 void fire_ubx_msg(char *msg, size_t len, int testrun);
-
-/* ublox m8 datasheet: (I'm using a M8030 chip)
-https://content.u-blox.com/sites/default/files/products/documents/u-blox8-M8_ReceiverDescrProtSpec_UBX-13003221.pdf
-*/
 
 
 void on_uart_rx() {
@@ -220,6 +232,8 @@ void send_ubx(int testrun) {
         0xD0,0x08,0x00,0x00,0x00,0xC2,0x01,0x00,0x07,0x00,
         0x03,0x00,0x00,0x00,0x00,0x00,0xC0,0x7E
     };
+
+    // pick the desired message and send it.
     fire_ubx_msg(change_baud_rate, sizeof(change_baud_rate), testrun);
 }
 
