@@ -84,10 +84,7 @@ int get_checksum(char *string) {
 
 void compile_message(char *nmea_msg, char *raw_msg, char *checksum,
                      char *terminator) {
-    // add up the components piece by piece and write them to the `nmea_msg` array.
-    // strcat doesn't work since these aren't properly formatted strings.
-    // there's definitely a cleaner way to write this...
-    // that's true for this whole program, though
+    // add each component to the `nmea_msg` array
     strcat(nmea_msg, raw_msg);     // add the base message
     strcat(nmea_msg, checksum);    // add the checksum
     strcat(nmea_msg, terminator);  // finally, add the termination sequence
