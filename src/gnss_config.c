@@ -25,7 +25,7 @@
 #include "hardware/irq.h"
 
 #define UART_ID uart1   // change as needed
-#define BAUD_RATE 9600  // default BAUD rate for the module for initial connection. can be changed later.
+#define BAUD_RATE 115200  // default BAUD rate for the module for initial connection. can be changed later.
 #define DATA_BITS 8
 #define STOP_BITS 1
 #define PARITY UART_PARITY_NONE
@@ -52,13 +52,12 @@ int main(void) {
 
     //  execution parameters ----------------------------------
     int testrun = 0;  // 1 to print the simulated transmission only, 0 to transmit it.
-    int changing_baud = 1;  // only required for NMEA messages
+    int changing_baud = 0;  // only required for NMEA messages
 
-    // send nmea, ubx, or both
-    send_nmea(testrun, changing_baud);  // comment out to not send anything
-    send_ubx(testrun);   // comment out to not send anything
+    // send nmea, ubx, or both. simply uncomment what you want to send:
+    send_nmea(testrun, changing_baud);  // make changes to desired sentences and/or baud rate
+    // send_ubx(testrun);   // save the configurations to non-volatile mem on the chip.
     // ---------------------------------- execution parameters
-
 
     uart_rx_setup();  // initialize UART Rx on the pico
     while (1)
@@ -158,7 +157,7 @@ int extract_baud_rate(char *string) {
 }
 
 void fire_ubx_msg(char *msg, size_t len) {
-    printf("Firing UBX message.\n");
+    printf("Firing UBX message: %s\n", msg);
     for (int i=0; i<4; i++) {
         uart_write_blocking(UART_ID, msg, len);
         busy_wait_ms(400);  // rbf
@@ -166,7 +165,7 @@ void fire_ubx_msg(char *msg, size_t len) {
 }
 
 void fire_nmea_msg(char *msg) {
-    printf("Firing NMEA message.\n");
+    printf("Firing NMEA message: %s\n", msg);
     for (int k = 0; k < 5; k++) {
         // send out the message multiple times. BAUD_RATE in particular needs this treatment.
         for (int i=0; i<strlen(msg); i++) {
@@ -251,6 +250,12 @@ void send_nmea(int testrun, int changing_baud) {
 
 void send_ubx(int testrun) {
     // cfg_cfg_save_all will cause the changes to be permanent and persist through power cycles.
+    // this current program works for persisting changes, at least though short power interrupts.
+    // to test this, I modified the enable/disable arrays to add and delete new sentences. After this,
+    // when reading the stream of UART from the device, I disconnected power from the GNSS module and
+    // grounded it before reconnecting it to ensure any capacitors were fully drained. Then, when reconnecting
+    // the wire, the stream reappeared but the changes were NOT preserved. This process was then repeated but
+    // with using the UBX-CFG-CFG message. This time, the changes were persistent.
     uint8_t cfg_cfg_save_all[] = {
         0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,0xFF,
         0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x03,0x1D,0xAB
