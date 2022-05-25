@@ -25,7 +25,7 @@
 #include "hardware/irq.h"
 
 #define UART_ID uart1   // change as needed
-#define BAUD_RATE 115200  // default BAUD rate for the module for initial connection. can be changed later.
+#define BAUD_RATE 9600  // default BAUD rate for the module for initial connection. can be changed later.
 #define DATA_BITS 8
 #define STOP_BITS 1
 #define PARITY UART_PARITY_NONE
@@ -39,15 +39,36 @@ void uart_rx_setup(void);
 void compile_message(char *nmea_msg, char *raw_msg, char *checksum,
                      char *terminator);
 int extract_baud_rate(char *string);
-void send_nmea(int testrun);
+void send_nmea(int testrun, int changing_baud);
 void send_ubx(int testrun);
-void fire_nmea_msg(char *msg, int testrun);
-void fire_ubx_msg(char *msg, size_t len, int testrun);
+void fire_nmea_msg(char *msg);
+void fire_ubx_msg(char *msg, size_t len);
+
+
+int main(void) {
+    stdio_init_all();  // important so that printf() works
+    uart_init(UART_ID, BAUD_RATE);
+    uart_tx_setup();  // initialize UART Tx on the pico
+
+    //  execution parameters ----------------------------------
+    int testrun = 0;  // 1 to print the simulated transmission only, 0 to transmit it.
+    int changing_baud = 1;  // only required for NMEA messages
+
+    // send nmea, ubx, or both
+    send_nmea(testrun, changing_baud);  // comment out to not send anything
+    // send_ubx(testrun);   // comment out to not send anything
+    // ---------------------------------- execution parameters
+
+
+    uart_rx_setup();  // initialize UART Rx on the pico
+    while (1)
+        tight_loop_contents();
+}
 
 
 void on_uart_rx() {
     // for reading the raw output to a buffer and printing it to the console
-    size_t len = 1024;  // size of the buffer in bytes
+    size_t len = 255;  // size of the buffer in bytes
     char buffer[len];  // make a buffer of size `len` for the raw message
     uart_read_blocking(UART_ID, buffer, len);
     printf("\n%s\n-------------\n", buffer);
@@ -72,7 +93,7 @@ int get_checksum(char *string) {
 		for (int i = 1; i < strlen(duplicate); i++) {
 			calculated_checksum = calculated_checksum ^ duplicate[i];  // exclusive OR
 		}
-        printf("Calculated checksum (int): %u\n", calculated_checksum);
+        // printf("Calculated checksum (int): %u\n", calculated_checksum);
         return calculated_checksum;
 	} else {
 		// printf("Error: Checksum missing or NULL NMEA message\r\n");
@@ -136,36 +157,23 @@ int extract_baud_rate(char *string) {
     return atoi(token);
 }
 
-void fire_ubx_msg(char *msg, size_t len, int testrun) {
-    printf("firing off UBX message...\n");
-    if (testrun == 0) {
-        // send out the message multiple times. BAUD_RATE in particular needs this treatment.
-        for (int i=0; i<3; i++) {
-            uart_write_blocking(UART_ID, msg, len);
-        }
+void fire_ubx_msg(char *msg, size_t len) {
+    for (int i=0; i<3; i++) {
+        uart_write_blocking(UART_ID, msg, len);
     }
 }
 
-void fire_nmea_msg(char *msg, int testrun) {
-    printf("firing off NMEA message...\n");
+void fire_nmea_msg(char *msg) {
     for (int k = 0; k < 5; k++) {
         // send out the message multiple times. BAUD_RATE in particular needs this treatment.
-        if (testrun == 0) {
-            for (int i=0; i<strlen(msg); i++) {
-                // write the message char by char.
-                uart_putc_raw(UART_ID, msg[i]);
-            }
-        } else {
-            for (int i=0; i<strlen(msg); i++) {
-                // print the chars for debugging
-                // printf("%c|", msg[i]);
-            }
+        for (int i=0; i<strlen(msg); i++) {
+            // write the message char by char.
+            uart_putc_raw(UART_ID, msg[i]);
         }
-        printf("\n");
     }
 }
 
-void send_nmea(int testrun) {
+void send_nmea(int testrun, int changing_baud) {
     // below are some NMEA PUBX messages to be modified as needed.
     // checksum values (immediately following `*`) are generated automatically
 
@@ -181,82 +189,60 @@ void send_nmea(int testrun) {
     char *disable_identifiers[] = { "GSV", "VTG", "RMC", "GSA", "GLL" };  // combined with `disable`
 
     // this is a PUBX 41 message, no automated composition, just append this to the messages array as-is
-    // char update_baud_rate[] = "$PUBX,41,1,3,3,115200,0*";  // update baud rate
-    char update_baud_rate[] = "";  // either null or the above message with modified baud
-
-    char *messages[16];  // update this limit as needed, or implement with dynamic memory allocation (beyond my skills ATM)
+    char update_baud_rate[] = "$PUBX,41,1,3,3,115200,0*";  // update baud rate
+    int num_enables = sizeof(enable_identifiers) / sizeof(enable_identifiers[0]);
+    int num_disables = sizeof(disable_identifiers) / sizeof(disable_identifiers[0]);
+    char *messages[num_enables + num_disables + changing_baud];
     int msg_count = 0;
 
     // construct the enabling messages
-    for (int i=0; i < sizeof(enable_identifiers) / sizeof(enable_identifiers[0]); i++) {
+    for (int i=0; i < num_enables; i++) {
         static char raw_msg[21];
-        strcpy(raw_msg, "");  // get rid of junk
+        strcpy(raw_msg, "");  // get rid of junk values
         strcat(raw_msg, pub40_prefix);
         strcat(raw_msg, enable_identifiers[i]);
         strcat(raw_msg, enable);
         messages[msg_count++] = strdup(raw_msg);
-        // messages[msg_count++] = raw_msg;
-        // maybe the strings created in this loop are local and thus get deleted? -- the evidence seems to point to this.
-        // ^ this is exactly what was happening when assigning with messages[msg_count++] = raw_msg. even strcpy() was
-        // doing the same thing. strdup() created a deep copy (new memory address) and thus doesn't have the same issue.
     }
 
-    // // construct the disabling messages
-    // for (int i=0; i < sizeof(disable_identifiers) / sizeof(disable_identifiers[0]); i++) {
-    //     char raw_msg[21];
-    //     strcpy(raw_msg, "");
-    //     strcat(raw_msg, pub40_prefix);
-    //     strcat(raw_msg, disable_identifiers[i]);
-    //     strcat(raw_msg, disable);
-    //     strcpy(messages[msg_count++], raw_msg);
-    //     // messages[msg_count++] = raw_msg;
-    // }
+    // construct the disabling messages
+    for (int i=0; i < num_disables; i++) {
+        char raw_msg[21];
+        strcpy(raw_msg, ""); // get rid of junk values
+        strcat(raw_msg, pub40_prefix);
+        strcat(raw_msg, disable_identifiers[i]);
+        strcat(raw_msg, disable);
+        messages[msg_count++] = strdup(raw_msg);
+    }
 
-    printf("------\n");
-    printf("%s\n", messages[0]);
-    printf("%s\n", messages[1]);
-    // printf("%s\n", messages[2]);
-    // printf("%s\n", messages[3]);
-    // printf("%s\n", messages[4]);
-    // printf("%s\n", messages[5]);
-    // printf("%s\n", messages[6]);
-    // printf("%s\n", messages[7]);
-    // printf("--");
+    if (changing_baud == 1) {
+        // add the baud rate message, if applicable
+        messages[msg_count++] = update_baud_rate;  // strdup not needed since `update_baud_rate` wont't be overwritten
+    }
 
-    // if (update_baud_rate != "") {
-    //     // add the baud rate message, if applicable
-    //     printf("updating baud rate -- shouldn't be!\n");
-    //     messages[msg_count++] = update_baud_rate;
-    // }
     for (int i=0; i < msg_count; i++) {
-        printf("message: %d - %s\n", i, messages[i]);
-        /* 
         int decimal_checksum;  // placeholder for the integer value checksum checksum
         decimal_checksum = get_checksum(messages[i]);  // calc the hex checksum and write it to the `checksum` array
         char checksum[2];  // placeholder for hexadecimal checksum
         strcpy(checksum, "");  // initialize to empty string to avoid junk values
-        sprintf(checksum, "%x", decimal_checksum);  // convert the decimal checksum to hexadecimal
-        printf("m3: %s\n", messages[i]);
+        sprintf(checksum, "%X", decimal_checksum);  // convert the decimal checksum to hexadecimal
         // itoa(cs, checksum, 16);  // alternative to sprintf()
         // printf("%s", checksum);  // for debugging
         char msg_terminator[] = "\r\n";  // NMEA sentence terminator <cr><lr> == "\r\n"
         char nmea_msg[strlen(messages[i]) + strlen(msg_terminator) + strlen(checksum)];  // placeholder for final message
         strcpy(nmea_msg, "");  // initialize to empty string to avoid junk values
-        printf("m4: %s\n", messages[i]);
         compile_message(nmea_msg, messages[i], checksum, msg_terminator);  // assemble the components into the final msg
-        printf("m5: %s\n", messages[i]);
 
-        printf("final message: %s\n", nmea_msg);  // rbf
-        fire_nmea_msg(nmea_msg, testrun);
-
-        if (strncmp(nmea_msg, update_baud_rate, 23) == 0 && (testrun == 0)) {
+        if (!testrun) {
+            fire_nmea_msg(nmea_msg);
+        }
+        if (strncmp(nmea_msg, update_baud_rate, 23) == 0) {
             int new_baud;
             new_baud = extract_baud_rate(update_baud_rate);
             // update the pico's UART baud rate to the newly set value.
-            printf("updating baud rate to %d", new_baud);
+            printf("updating baud rate to %d\n", new_baud);
             int __unused actual = uart_set_baudrate(UART_ID, new_baud);
         }
-    */
     }
 }
 
@@ -273,24 +259,8 @@ void send_ubx(int testrun) {
         0x03,0x00,0x00,0x00,0x00,0x00,0xC0,0x7E
     };
     // pick the desired message and send it.
-    fire_ubx_msg(cfg_cfg_save_all, sizeof(cfg_cfg_save_all)-1, testrun);
-}
-
-int main(void) {
-    stdio_init_all();  // important so that printf() works
-    uart_init(UART_ID, BAUD_RATE);
-    uart_tx_setup();  // initialize UART Tx on the pico
-
-    int testrun = 1;  // 1 to print the simulated transmission only, 0 to transmit it.
-    if (testrun == 1) {
-        printf("TESTRUN ONLY!\n");
+    if (!testrun) {
+        fire_ubx_msg(cfg_cfg_save_all, sizeof(cfg_cfg_save_all)-1);
     }
-
-    // TODO: be able to power on/off the module
-    send_nmea(testrun);  // comment out to not send anything
-    // send_ubx(testrun);   // comment out to not send anything
-
-    uart_rx_setup();  // initialize UART Rx on the pico
-    while (1)
-        tight_loop_contents();
 }
+
