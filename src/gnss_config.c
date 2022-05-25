@@ -47,7 +47,7 @@ void fire_ubx_msg(char *msg, size_t len, int testrun);
 
 void on_uart_rx() {
     // for reading the raw output to a buffer and printing it to the console
-    size_t len = 512;  // size of the buffer in bytes
+    size_t len = 1024;  // size of the buffer in bytes
     char buffer[len];  // make a buffer of size `len` for the raw message
     uart_read_blocking(UART_ID, buffer, len);
     printf("\n%s\n-------------\n", buffer);
@@ -82,8 +82,8 @@ int get_checksum(char *string) {
 }
 
 
-void compile_message(char *nmea_msg, char *raw_msg, char *checksum,
-                     char *terminator) {
+void compile_message(char *nmea_msg, char *raw_msg,
+                     char *checksum, char *terminator) {
     // add each component to the `nmea_msg` array
     strcat(nmea_msg, raw_msg);     // add the base message
     strcat(nmea_msg, checksum);    // add the checksum
@@ -158,7 +158,7 @@ void fire_nmea_msg(char *msg, int testrun) {
         } else {
             for (int i=0; i<strlen(msg); i++) {
                 // print the chars for debugging
-                printf("%c|", msg[i]);
+                // printf("%c|", msg[i]);
             }
         }
         printf("\n");
@@ -168,35 +168,85 @@ void fire_nmea_msg(char *msg, int testrun) {
 void send_nmea(int testrun) {
     // below are some NMEA PUBX messages to be modified as needed.
     // checksum values (immediately following `*`) are generated automatically
-    char update_baud_rate[] = "$PUBX,41,1,3,3,115200,0*";  // update baud rate
-    char enable_zda[] = "$PUBX,40,ZDA,0,1,0,0*";           // enable ZDA
-    char disable_gsv[] = "$PUBX,40,GSV,0,1,0,0*";          // disable GSV
-    char disable_vtg[] = "$PUBX,40,VTG,0,1,0,0*";          // disable VTG
-    char disable_rmc[] = "$PUBX,40,RMC,0,1,0,0*";          // disable RMC
-    char disable_gsa[] = "$PUBX,40,GSA,0,1,0,0*";          // disable GSA
-    char disable_gll[] = "$PUBX,40,GLL,0,1,0,0*";          // disable GLL messages
-    char *messages[] = { update_baud_rate, enable_zda, disable_gsv,
-                         disable_vtg, disable_rmc, disable_gsa, disable_gll };
 
-    // --------------- modify below variables to control execution---------------
-    
-    for (int i=0; i < sizeof(messages)/sizeof(messages[0]); i++) {
-        printf("message: %s\n", messages[i]);
+    // configure port scheme for NMEA PUBX messages and dynamically construct messages
+    // 1 means enable, 0 for disable. Below, the 0th element is DDC, 1st is USART1,
+    // 2nd is USART2, 3rd is USB, 4th is SPI. eg. "0,1,0,0" will enable all given identifiers on USART1
+    char enable[] = ",0,1,0,0*";   // enable on USART1 and disable all other ports
+    char disable[] = ",0,0,0,0*";  // disable on all ports
+    char pub40_prefix[] = "$PUBX,40,";
 
-        // ------------------------ end modifyable variables ------------------------
+    // modify these as needed:
+    char *enable_identifiers[] = { "ZDA", "GGA" };  // gets combined these with `enable` char array
+    char *disable_identifiers[] = { "GSV", "VTG", "RMC", "GSA", "GLL" };  // combined with `disable`
 
+    // this is a PUBX 41 message, no automated composition, just append this to the messages array as-is
+    // char update_baud_rate[] = "$PUBX,41,1,3,3,115200,0*";  // update baud rate
+    char update_baud_rate[] = "";  // either null or the above message with modified baud
+
+    char *messages[16];  // update this limit as needed, or implement with dynamic memory allocation (beyond my skills ATM)
+    int msg_count = 0;
+
+    // construct the enabling messages
+    for (int i=0; i < sizeof(enable_identifiers) / sizeof(enable_identifiers[0]); i++) {
+        static char raw_msg[21];
+        strcpy(raw_msg, "");  // get rid of junk
+        strcat(raw_msg, pub40_prefix);
+        strcat(raw_msg, enable_identifiers[i]);
+        strcat(raw_msg, enable);
+        messages[msg_count++] = strdup(raw_msg);
+        // messages[msg_count++] = raw_msg;
+        // maybe the strings created in this loop are local and thus get deleted? -- the evidence seems to point to this.
+        // ^ this is exactly what was happening when assigning with messages[msg_count++] = raw_msg. even strcpy() was
+        // doing the same thing. strdup() created a deep copy (new memory address) and thus doesn't have the same issue.
+    }
+
+    // // construct the disabling messages
+    // for (int i=0; i < sizeof(disable_identifiers) / sizeof(disable_identifiers[0]); i++) {
+    //     char raw_msg[21];
+    //     strcpy(raw_msg, "");
+    //     strcat(raw_msg, pub40_prefix);
+    //     strcat(raw_msg, disable_identifiers[i]);
+    //     strcat(raw_msg, disable);
+    //     strcpy(messages[msg_count++], raw_msg);
+    //     // messages[msg_count++] = raw_msg;
+    // }
+
+    printf("------\n");
+    printf("%s\n", messages[0]);
+    printf("%s\n", messages[1]);
+    // printf("%s\n", messages[2]);
+    // printf("%s\n", messages[3]);
+    // printf("%s\n", messages[4]);
+    // printf("%s\n", messages[5]);
+    // printf("%s\n", messages[6]);
+    // printf("%s\n", messages[7]);
+    // printf("--");
+
+    // if (update_baud_rate != "") {
+    //     // add the baud rate message, if applicable
+    //     printf("updating baud rate -- shouldn't be!\n");
+    //     messages[msg_count++] = update_baud_rate;
+    // }
+    for (int i=0; i < msg_count; i++) {
+        printf("message: %d - %s\n", i, messages[i]);
+        /* 
         int decimal_checksum;  // placeholder for the integer value checksum checksum
         decimal_checksum = get_checksum(messages[i]);  // calc the hex checksum and write it to the `checksum` array
         char checksum[2];  // placeholder for hexadecimal checksum
         strcpy(checksum, "");  // initialize to empty string to avoid junk values
         sprintf(checksum, "%x", decimal_checksum);  // convert the decimal checksum to hexadecimal
+        printf("m3: %s\n", messages[i]);
         // itoa(cs, checksum, 16);  // alternative to sprintf()
         // printf("%s", checksum);  // for debugging
         char msg_terminator[] = "\r\n";  // NMEA sentence terminator <cr><lr> == "\r\n"
         char nmea_msg[strlen(messages[i]) + strlen(msg_terminator) + strlen(checksum)];  // placeholder for final message
         strcpy(nmea_msg, "");  // initialize to empty string to avoid junk values
+        printf("m4: %s\n", messages[i]);
         compile_message(nmea_msg, messages[i], checksum, msg_terminator);  // assemble the components into the final msg
+        printf("m5: %s\n", messages[i]);
 
+        printf("final message: %s\n", nmea_msg);  // rbf
         fire_nmea_msg(nmea_msg, testrun);
 
         if (strncmp(nmea_msg, update_baud_rate, 23) == 0 && (testrun == 0)) {
@@ -206,8 +256,8 @@ void send_nmea(int testrun) {
             printf("updating baud rate to %d", new_baud);
             int __unused actual = uart_set_baudrate(UART_ID, new_baud);
         }
+    */
     }
-
 }
 
 void send_ubx(int testrun) {
@@ -231,8 +281,7 @@ int main(void) {
     uart_init(UART_ID, BAUD_RATE);
     uart_tx_setup();  // initialize UART Tx on the pico
 
-    int testrun = 0;  // 1 to print the simulated transmission only, 0 to transmit it.
-    printf("REMINDER: ENSURE `BAUD_RATE` IS CORRECT FOR INITIAL CONNECTION!\n\n");
+    int testrun = 1;  // 1 to print the simulated transmission only, 0 to transmit it.
     if (testrun == 1) {
         printf("TESTRUN ONLY!\n");
     }
