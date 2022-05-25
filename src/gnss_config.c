@@ -56,7 +56,7 @@ int main(void) {
 
     // send nmea, ubx, or both
     send_nmea(testrun, changing_baud);  // comment out to not send anything
-    // send_ubx(testrun);   // comment out to not send anything
+    send_ubx(testrun);   // comment out to not send anything
     // ---------------------------------- execution parameters
 
 
@@ -158,12 +158,15 @@ int extract_baud_rate(char *string) {
 }
 
 void fire_ubx_msg(char *msg, size_t len) {
-    for (int i=0; i<3; i++) {
+    printf("Firing UBX message.\n");
+    for (int i=0; i<4; i++) {
         uart_write_blocking(UART_ID, msg, len);
+        busy_wait_ms(400);  // rbf
     }
 }
 
 void fire_nmea_msg(char *msg) {
+    printf("Firing NMEA message.\n");
     for (int k = 0; k < 5; k++) {
         // send out the message multiple times. BAUD_RATE in particular needs this treatment.
         for (int i=0; i<strlen(msg); i++) {
@@ -260,7 +263,7 @@ void send_ubx(int testrun) {
     };
     // pick the desired message and send it.
     if (!testrun) {
-        fire_ubx_msg(cfg_cfg_save_all, sizeof(cfg_cfg_save_all)-1);
+        fire_ubx_msg(cfg_cfg_save_all, sizeof(cfg_cfg_save_all));
     }
 }
 
