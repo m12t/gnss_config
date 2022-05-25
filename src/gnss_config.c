@@ -47,7 +47,7 @@ void fire_ubx_msg(char *msg, size_t len, int testrun);
 
 void on_uart_rx() {
     // for reading the raw output to a buffer and printing it to the console
-    size_t len = 255;  // size of the buffer in bytes
+    size_t len = 512;  // size of the buffer in bytes
     char buffer[len];  // make a buffer of size `len` for the raw message
     uart_read_blocking(UART_ID, buffer, len);
     printf("\n%s\n-------------\n", buffer);
@@ -140,7 +140,7 @@ void fire_ubx_msg(char *msg, size_t len, int testrun) {
     printf("firing off UBX message...\n");
     if (testrun == 0) {
         // send out the message multiple times. BAUD_RATE in particular needs this treatment.
-        for (int i=0; i<5; i++) {
+        for (int i=0; i<3; i++) {
             uart_write_blocking(UART_ID, msg, len);
         }
     }
@@ -169,39 +169,43 @@ void send_nmea(int testrun) {
     // below are some NMEA PUBX messages to be modified as needed.
     // checksum values (immediately following `*`) are generated automatically
     char update_baud_rate[] = "$PUBX,41,1,3,3,115200,0*";  // update baud rate
-    char enable_zda[] = "$PUBX,40,ZDA,1,1,1,0*";           // enable ZDA
-    char disable_gsv[] = "$PUBX,40,GSV,0,0,0,0*";          // disable GSV
-    char disable_vtg[] = "$PUBX,40,VTG,0,0,0,0*";          // disable VTG
-    char disable_rmc[] = "$PUBX,40,RMC,0,0,0,0*";          // disable RMC
-    char disable_gsa[] = "$PUBX,40,GSA,0,0,0,0*";          // disable GSA
-    char disable_gll[] = "$PUBX,40,GLL,0,0,0,0*";          // disable GLL messages
+    char enable_zda[] = "$PUBX,40,ZDA,0,1,0,0*";           // enable ZDA
+    char disable_gsv[] = "$PUBX,40,GSV,0,1,0,0*";          // disable GSV
+    char disable_vtg[] = "$PUBX,40,VTG,0,1,0,0*";          // disable VTG
+    char disable_rmc[] = "$PUBX,40,RMC,0,1,0,0*";          // disable RMC
+    char disable_gsa[] = "$PUBX,40,GSA,0,1,0,0*";          // disable GSA
+    char disable_gll[] = "$PUBX,40,GLL,0,1,0,0*";          // disable GLL messages
+    char *messages[] = { update_baud_rate, enable_zda, disable_gsv,
+                         disable_vtg, disable_rmc, disable_gsa, disable_gll };
 
     // --------------- modify below variables to control execution---------------
+    
+    for (int i=0; i < sizeof(messages)/sizeof(messages[0]); i++) {
+        printf("message: %s\n", messages[i]);
 
-    char raw_msg[] = "$PUBX,40,GLL,0,0,0,0*";  // pick the desired message to write and just hardcode it here
+        // ------------------------ end modifyable variables ------------------------
 
-    // ------------------------ end modifyable variables ------------------------
+        int decimal_checksum;  // placeholder for the integer value checksum checksum
+        decimal_checksum = get_checksum(messages[i]);  // calc the hex checksum and write it to the `checksum` array
+        char checksum[2];  // placeholder for hexadecimal checksum
+        strcpy(checksum, "");  // initialize to empty string to avoid junk values
+        sprintf(checksum, "%x", decimal_checksum);  // convert the decimal checksum to hexadecimal
+        // itoa(cs, checksum, 16);  // alternative to sprintf()
+        // printf("%s", checksum);  // for debugging
+        char msg_terminator[] = "\r\n";  // NMEA sentence terminator <cr><lr> == "\r\n"
+        char nmea_msg[strlen(messages[i]) + strlen(msg_terminator) + strlen(checksum)];  // placeholder for final message
+        strcpy(nmea_msg, "");  // initialize to empty string to avoid junk values
+        compile_message(nmea_msg, messages[i], checksum, msg_terminator);  // assemble the components into the final msg
 
-    int decimal_checksum;  // placeholder for the integer value checksum checksum
-    decimal_checksum = get_checksum(raw_msg);  // calc the hex checksum and write it to the `checksum` array
-    char checksum[2];  // placeholder for hexadecimal checksum
-    strcpy(checksum, "");  // initialize to empty string to avoid junk values
-    sprintf(checksum, "%x", decimal_checksum);  // convert the decimal checksum to hexadecimal
-    // itoa(cs, checksum, 16);  // alternative to sprintf()
-    // printf("%s", checksum);  // for debugging
-    char msg_terminator[] = "\r\n";  // NMEA sentence terminator <cr><lr> == "\r\n"
-    char nmea_msg[strlen(raw_msg) + strlen(msg_terminator) + strlen(checksum)];  // placeholder for final message
-    strcpy(nmea_msg, "");  // initialize to empty string to avoid junk values
-    compile_message(nmea_msg, raw_msg, checksum, msg_terminator);  // assemble the components into the final msg
+        fire_nmea_msg(nmea_msg, testrun);
 
-    fire_nmea_msg(nmea_msg, testrun);
-
-    if (strncmp(nmea_msg, update_baud_rate, 23) == 0 && (testrun == 0)) {
-        int new_baud;
-        new_baud = extract_baud_rate(update_baud_rate);
-        // update the pico's UART baud rate to the newly set value.
-        printf("updating baud rate to %d", new_baud);
-        int __unused actual = uart_set_baudrate(UART_ID, new_baud);
+        if (strncmp(nmea_msg, update_baud_rate, 23) == 0 && (testrun == 0)) {
+            int new_baud;
+            new_baud = extract_baud_rate(update_baud_rate);
+            // update the pico's UART baud rate to the newly set value.
+            printf("updating baud rate to %d", new_baud);
+            int __unused actual = uart_set_baudrate(UART_ID, new_baud);
+        }
     }
 
 }
@@ -219,7 +223,7 @@ void send_ubx(int testrun) {
         0x03,0x00,0x00,0x00,0x00,0x00,0xC0,0x7E
     };
     // pick the desired message and send it.
-    fire_ubx_msg(cfg_cfg_save_all, sizeof(change_baud_rate), testrun);
+    fire_ubx_msg(cfg_cfg_save_all, sizeof(cfg_cfg_save_all)-1, testrun);
 }
 
 int main(void) {
@@ -229,11 +233,13 @@ int main(void) {
 
     int testrun = 0;  // 1 to print the simulated transmission only, 0 to transmit it.
     printf("REMINDER: ENSURE `BAUD_RATE` IS CORRECT FOR INITIAL CONNECTION!\n\n");
+    if (testrun == 1) {
+        printf("TESTRUN ONLY!\n");
+    }
 
     // TODO: be able to power on/off the module
-
-    // send_nmea(testrun);  // comment out to not send anything
-    send_ubx(testrun);   // comment out to not send anything
+    send_nmea(testrun);  // comment out to not send anything
+    // send_ubx(testrun);   // comment out to not send anything
 
     uart_rx_setup();  // initialize UART Rx on the pico
     while (1)
