@@ -250,12 +250,6 @@ void send_nmea(int testrun, int changing_baud) {
 
 void send_ubx(int testrun) {
     // cfg_cfg_save_all will cause the changes to be permanent and persist through power cycles.
-    // this current program works for persisting changes, at least though short power interrupts.
-    // to test this, I modified the enable/disable arrays to add and delete new sentences. After this,
-    // when reading the stream of UART from the device, I disconnected power from the GNSS module and
-    // grounded it before reconnecting it to ensure any capacitors were fully drained. Then, when reconnecting
-    // the wire, the stream reappeared but the changes were NOT preserved. This process was then repeated but
-    // with using the UBX-CFG-CFG message. This time, the changes were persistent.
     uint8_t cfg_cfg_save_all[] = {
         0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,0xFF,
         0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x03,0x1D,0xAB
