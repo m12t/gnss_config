@@ -52,7 +52,7 @@ int main(void) {
 
     //  execution parameters ----------------------------------
     int testrun = 0;  // 1 to print the simulated transmission only, 0 to transmit it.
-    int changing_baud = 0;  // only required for NMEA messages
+    int changing_baud = 1;  // only required for NMEA messages
 
     // send nmea, ubx, or both. simply uncomment what you want to send:
     send_nmea(testrun, changing_baud);  // make changes to desired sentences and/or baud rate
@@ -70,7 +70,11 @@ void on_uart_rx() {
     size_t len = 255;  // size of the buffer in bytes
     char buffer[len];  // make a buffer of size `len` for the raw message
     uart_read_blocking(UART_ID, buffer, len);
-    printf("\n%s\n-------------\n", buffer);
+    for (int i=0; i<255; i++) {
+        // print the hex message
+        // printf("%02X", buffer[i]);
+    }
+    printf("s: %s\n-------------\n", buffer);
 }
 
 
@@ -187,25 +191,15 @@ void send_nmea(int testrun, int changing_baud) {
     char pub40_prefix[] = "$PUBX,40,";
 
     // modify these as needed:
+    char *disable_identifiers[] = { "GSA", "RMC", "GSV", "VTG", "GLL" };  // combined with `disable`
     char *enable_identifiers[] = { "ZDA", "GGA" };  // gets combined these with `enable` char array
-    char *disable_identifiers[] = { "GSV", "VTG", "RMC", "GSA", "GLL" };  // combined with `disable`
 
     // this is a PUBX 41 message, no automated composition, just append this to the messages array as-is
     char update_baud_rate[] = "$PUBX,41,1,3,3,115200,0*";  // update baud rate
-    int num_enables = sizeof(enable_identifiers) / sizeof(enable_identifiers[0]);
     int num_disables = sizeof(disable_identifiers) / sizeof(disable_identifiers[0]);
+    int num_enables = sizeof(enable_identifiers) / sizeof(enable_identifiers[0]);
     char *messages[num_enables + num_disables + changing_baud];
     int msg_count = 0;
-
-    // construct the enabling messages
-    for (int i=0; i < num_enables; i++) {
-        static char raw_msg[21];
-        strcpy(raw_msg, "");  // get rid of junk values
-        strcat(raw_msg, pub40_prefix);
-        strcat(raw_msg, enable_identifiers[i]);
-        strcat(raw_msg, enable);
-        messages[msg_count++] = strdup(raw_msg);
-    }
 
     // construct the disabling messages
     for (int i=0; i < num_disables; i++) {
@@ -214,6 +208,16 @@ void send_nmea(int testrun, int changing_baud) {
         strcat(raw_msg, pub40_prefix);
         strcat(raw_msg, disable_identifiers[i]);
         strcat(raw_msg, disable);
+        messages[msg_count++] = strdup(raw_msg);
+    }
+
+    // construct the enabling messages
+    for (int i=0; i < num_enables; i++) {
+        static char raw_msg[21];
+        strcpy(raw_msg, "");  // get rid of junk values
+        strcat(raw_msg, pub40_prefix);
+        strcat(raw_msg, enable_identifiers[i]);
+        strcat(raw_msg, enable);
         messages[msg_count++] = strdup(raw_msg);
     }
 
@@ -237,32 +241,47 @@ void send_nmea(int testrun, int changing_baud) {
 
         if (!testrun) {
             fire_nmea_msg(nmea_msg);
-        }
-        if (strncmp(nmea_msg, update_baud_rate, 23) == 0) {
-            int new_baud;
-            new_baud = extract_baud_rate(update_baud_rate);
-            // update the pico's UART baud rate to the newly set value.
-            printf("updating baud rate to %d\n", new_baud);
-            int __unused actual = uart_set_baudrate(UART_ID, new_baud);
+            if (strncmp(nmea_msg, update_baud_rate, 23) == 0) {
+                int new_baud;
+                new_baud = extract_baud_rate(update_baud_rate);
+                // update the pico's UART baud rate to the newly set value.
+                printf("updating baud rate to %d\n", new_baud);
+                int __unused actual = uart_set_baudrate(UART_ID, new_baud);
+            }
         }
     }
 }
 
 void send_ubx(int testrun) {
     // cfg_cfg_save_all will cause the changes to be permanent and persist through power cycles.
-    uint8_t cfg_cfg_save_all[] = {
+
+    // this is currently not working. the config will persist for a short period after disconnecting
+    // the module, but after several hours the config will be lost. This is likely saving to battery-backed RAM
+    // and once the battery discharges it will be erased. Need to configure to write it to flash.
+    // the TBS m8.2 supposedly has onboard flash, run UBX-LOG-INFO to verify.
+    uint8_t cfg_cfg_flash[] = {
         0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,0xFF,
-        0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x03,0x1D,0xAB
+        0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0x1C,0xAA
+    };
+    uint8_t cfg_cfg_spi_flash[] = {
+        0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,0xFF,
+        0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x10,0x2A,0xB8
     };
     // below changes baud rate to `115200`
-    uint8_t change_baud_rate[] = {
+    uint8_t cfg_prt[] = {
         0xB5,0x62,0x06,0x00,0x14,0x00,0x01,0x00,0x00,0x00,
         0xD0,0x08,0x00,0x00,0x00,0xC2,0x01,0x00,0x07,0x00,
         0x03,0x00,0x00,0x00,0x00,0x00,0xC0,0x7E
     };
+    // uint8_t ubx_log_info[] = {  // not complete
+    //     0xB5,0x62,0x21,0x08,0x14,0x00,0x01,0x00,0x00,0x00,
+    //     0xD0,0x08,0x00,0x00,0x00,0xC2,0x01,0x00,0x07,0x00,
+    //     0x03,0x00,0x00,0x00,0x00,0x00,0xC0,0x7E
+    // };
+    uint8_t gps_time[] = {0xB5, 0x62, 0x01, 0x21, 0x00, 0x00, 0x22, 0x67};
     // pick the desired message and send it.
     if (!testrun) {
-        fire_ubx_msg(cfg_cfg_save_all, sizeof(cfg_cfg_save_all));
+        fire_ubx_msg(cfg_cfg_flash, sizeof(cfg_cfg_flash));
     }
 }
 
