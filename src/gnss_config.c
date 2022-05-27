@@ -14,6 +14,10 @@
     UART and have a stream (eg. using minicom) to read the output in the terminal. Then disconnect power from
     only the module and reconnect it. A stream of `GPTXT` data will be emitted. You can look up what it should and
     shouldn't look like for a genuine chip. This program likely won't work on a clone chip.
+
+    >>> after hours of digging, eventually removing the metal cover to see the m8030-KT chip, which has no internal
+        flash storage. So the save commands can only save to BBR at best. The save UBX-CFG-CFG save commands are
+        correct, there just isn't any onboard flash to save to on my chip.
 */
 
 #include <stdio.h>
@@ -25,7 +29,7 @@
 #include "hardware/irq.h"
 
 #define UART_ID uart1   // change as needed
-#define BAUD_RATE 115200  // default BAUD rate for the module for initial connection. can be changed later.
+#define BAUD_RATE 9600  // default BAUD rate for the module for initial connection. can be changed later.
 #define DATA_BITS 8
 #define STOP_BITS 1
 #define PARITY UART_PARITY_NONE
@@ -42,7 +46,7 @@ int extract_baud_rate(char *string);
 void send_nmea(int testrun, int changing_baud);
 void send_ubx(int testrun);
 void fire_nmea_msg(char *msg);
-void fire_ubx_msg(char *msg, size_t len);
+void fire_ubx_msg(uint8_t *msg, size_t len);
 
 
 int main(void) {
@@ -56,7 +60,7 @@ int main(void) {
 
     // send nmea, ubx, or both. simply uncomment what you want to send:
     send_nmea(testrun, changing_baud);  // make changes to desired sentences and/or baud rate
-    // send_ubx(testrun);   // save the configurations to non-volatile mem on the chip.
+    send_ubx(testrun);   // save the configurations to non-volatile mem on the chip.
     // ---------------------------------- execution parameters
 
     uart_rx_setup();  // initialize UART Rx on the pico
@@ -66,15 +70,20 @@ int main(void) {
 
 
 void on_uart_rx() {
-    // for reading the raw output to a buffer and printing it to the console
-    size_t len = 255;  // size of the buffer in bytes
-    char buffer[len];  // make a buffer of size `len` for the raw message
-    uart_read_blocking(UART_ID, buffer, len);
-    for (int i=0; i<255; i++) {
-        // print the hex message
-        // printf("%02X", buffer[i]);
+    // just go line by line, no 
+    while (uart_is_readable(UART_ID)) {
+        uint8_t ch = uart_getc(UART_ID);
+        printf("%c", ch);
     }
-    printf("s: %s\n-------------\n", buffer);
+
+    // size_t len = 256;  // size of the buffer in bytes
+    // char buffer[len];  // make a buffer of size `len` for the raw message
+    // uart_read_blocking(UART_ID, buffer, len);
+    // for (int i=0; i<len-1; i++) {
+    //     // print the hex message
+    //     // printf("%02X", buffer[i]);
+    // }
+    // printf("s: %s\n-------------\n", buffer);
 }
 
 
@@ -126,7 +135,7 @@ void uart_tx_setup(void) {
 
     // Set our data format
     uart_set_format(UART_ID, DATA_BITS, STOP_BITS, PARITY);
-    uart_set_fifo_enabled(UART_ID, true);
+    uart_set_fifo_enabled(UART_ID, false);
 }
 
 
@@ -150,7 +159,7 @@ void uart_rx_setup(void) {
 
 int extract_baud_rate(char *string) {
     // extract the new baud from the message
-    printf("extracting baud rate....\n");
+    printf("extracting baud rate...\n");
     char *token;
     token = strtok(string, ",");
     for (int i=0; i<5; i++) {
@@ -160,11 +169,11 @@ int extract_baud_rate(char *string) {
     return atoi(token);
 }
 
-void fire_ubx_msg(char *msg, size_t len) {
-    printf("Firing UBX message: %s\n", msg);
-    for (int i=0; i<4; i++) {
+void fire_ubx_msg(uint8_t *msg, size_t len) {
+    printf("Firing UBX message...\n", msg);
+    for (int i=0; i<100; i++) {
         uart_write_blocking(UART_ID, msg, len);
-        busy_wait_ms(400);  // rbf
+        busy_wait_ms(i*10);  // rbf
     }
 }
 
@@ -191,8 +200,8 @@ void send_nmea(int testrun, int changing_baud) {
     char pub40_prefix[] = "$PUBX,40,";
 
     // modify these as needed:
-    char *disable_identifiers[] = { "GSA", "RMC", "GSV", "VTG", "GLL" };  // combined with `disable`
-    char *enable_identifiers[] = { "ZDA", "GGA" };  // gets combined these with `enable` char array
+    char *disable_identifiers[] = { "GSA", "RMC", "GSV", "VTG", "GLL"};  // combined with `disable`
+    char *enable_identifiers[] = { "GGA", "ZDA" };  // gets combined these with `enable` char array
 
     // this is a PUBX 41 message, no automated composition, just append this to the messages array as-is
     char update_baud_rate[] = "$PUBX,41,1,3,3,115200,0*";  // update baud rate
@@ -246,7 +255,7 @@ void send_nmea(int testrun, int changing_baud) {
                 new_baud = extract_baud_rate(update_baud_rate);
                 // update the pico's UART baud rate to the newly set value.
                 printf("updating baud rate to %d\n", new_baud);
-                int __unused actual = uart_set_baudrate(UART_ID, new_baud);
+                uart_set_baudrate(UART_ID, new_baud);
             }
         }
     }
@@ -259,29 +268,59 @@ void send_ubx(int testrun) {
     // the module, but after several hours the config will be lost. This is likely saving to battery-backed RAM
     // and once the battery discharges it will be erased. Need to configure to write it to flash.
     // the TBS m8.2 supposedly has onboard flash, run UBX-LOG-INFO to verify.
-    uint8_t cfg_cfg_flash[] = {
-        0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,0xFF,
-        0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0x1C,0xAA
+    uint8_t load_last_flash[] = {
+        0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0xFF,0xFF,0x00,0x00,0x12,0x2C,0xC2
     };
+    uint8_t cfg_cfg_flash_all[] = {
+        0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,0xFF,
+        0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x12,0x2C,0xBA
+    };
+
     uint8_t cfg_cfg_spi_flash[] = {
         0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,0xFF,
         0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x10,0x2A,0xB8
     };
+
+    // save to battery-backed RAM
+    uint8_t cfg_cfg_bbr[] = {
+        0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,0xFF,
+        0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x1B,0xA9
+    };
+
+    uint8_t cfg_cfg_bbr_flash_spiflash[] = {
+        0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,0xFF,
+        0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x13,0x2D,0xBB
+    };
+
+    uint8_t cfg_cfg_i2c_eeprom[] = {
+        0xB5,0x62,0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,0xFF,
+        0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x04,0x1E,0xAC
+    };
+    uint8_t revert_bbr_to_default[] = { 
+        0xB5,0x62,0x06,0x09,0x0D,0x00,0xFF,0xFF,0x00,0x00,0x00,
+        0x00,0x00,0x00,0xFF,0xFF,0x00,0x00,0x01,0x19,0x98
+    };
+
     // below changes baud rate to `115200`
     uint8_t cfg_prt[] = {
         0xB5,0x62,0x06,0x00,0x14,0x00,0x01,0x00,0x00,0x00,
         0xD0,0x08,0x00,0x00,0x00,0xC2,0x01,0x00,0x07,0x00,
         0x03,0x00,0x00,0x00,0x00,0x00,0xC0,0x7E
     };
-    // uint8_t ubx_log_info[] = {  // not complete
-    //     0xB5,0x62,0x21,0x08,0x14,0x00,0x01,0x00,0x00,0x00,
-    //     0xD0,0x08,0x00,0x00,0x00,0xC2,0x01,0x00,0x07,0x00,
-    //     0x03,0x00,0x00,0x00,0x00,0x00,0xC0,0x7E
-    // };
-    uint8_t gps_time[] = {0xB5, 0x62, 0x01, 0x21, 0x00, 0x00, 0x22, 0x67};
+    
+    // create a flash file
+    uint8_t log_create[] = {
+        0xB5,0x62,0x21,0x07,0x08,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x30,0x29
+    };
+
     // pick the desired message and send it.
     if (!testrun) {
-        fire_ubx_msg(cfg_cfg_flash, sizeof(cfg_cfg_flash));
+        fire_ubx_msg(cfg_cfg_bbr, sizeof(cfg_cfg_bbr));
+        // // busy_wait_ms(500);
+        
+        printf("done firing UBX\n");
     }
 }
 
