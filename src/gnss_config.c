@@ -29,7 +29,7 @@
 #include "hardware/irq.h"
 
 #define UART_ID uart1   // change as needed
-#define BAUD_RATE 9600  // default BAUD rate for the module for initial connection. can be changed later.
+#define BAUD_RATE 115200  // default BAUD rate for the module for initial connection. can be changed later.
 #define DATA_BITS 8
 #define STOP_BITS 1
 #define PARITY UART_PARITY_NONE
@@ -56,10 +56,10 @@ int main(void) {
 
     //  execution parameters ----------------------------------
     int testrun = 0;  // 1 to print the simulated transmission only, 0 to transmit it.
-    int changing_baud = 1;  // only required for NMEA messages
+    int changing_baud = 0;  // only required for NMEA messages
 
     // send nmea, ubx, or both. simply uncomment what you want to send:
-    send_nmea(testrun, changing_baud);  // make changes to desired sentences and/or baud rate
+    // send_nmea(testrun, changing_baud);  // make changes to desired sentences and/or baud rate
     send_ubx(testrun);   // save the configurations to non-volatile mem on the chip.
     // ---------------------------------- execution parameters
 
@@ -171,7 +171,7 @@ int extract_baud_rate(char *string) {
 
 void fire_ubx_msg(uint8_t *msg, size_t len) {
     printf("Firing UBX message...\n", msg);
-    for (int i=0; i<100; i++) {
+    for (int i=0; i<5; i++) {
         uart_write_blocking(UART_ID, msg, len);
         busy_wait_ms(i*10);  // rbf
     }
@@ -316,11 +316,25 @@ void send_ubx(int testrun) {
     };
 
     // pick the desired message and send it.
+    uint8_t sleep_indefinitely[] = {
+        0xB5,0x62,0x02,0x41,0x08,0x00,0x00,0x00,0x00,0x00,
+        0x02,0x00,0x00,0x00,0x4D,0x3B
+    };
+
+    uint8_t wake_indefinitely[] = {  // power on
+        0xB5,0x62,0x02,0x41,0x10,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x08,0x00,
+        0x00,0x00,0x5D,0x4B
+    };
     if (!testrun) {
-        fire_ubx_msg(cfg_cfg_bbr, sizeof(cfg_cfg_bbr));
+        fire_ubx_msg(sleep_indefinitely, sizeof(sleep_indefinitely));
         // // busy_wait_ms(500);
-        
-        printf("done firing UBX\n");
+        // printf("done firing UBX\n");
+        printf("sleeping now\n");
+        sleep_ms(30000);
+        fire_ubx_msg(wake_indefinitely, sizeof(wake_indefinitely));
+        printf("waking now\n");
+
     }
 }
 
